@@ -1,0 +1,41 @@
+# Scala / sbt
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+.vscode/
+.idea/
+.scala-build/
+
+# Class files
+*.class
+*.log
+
+# sbt specific
+.cache
+.history
+.lib/
+dist/*
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+
+# Scala-IDE specific
+.scala_dependencies
+.worksheet
+.cache-main
+.cache-tests
+
+# mise
+.mise.local.toml
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.swp
+*.swo
+*~

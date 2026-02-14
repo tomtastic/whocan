@@ -1,0 +1,7 @@
+# Sample authorized_keys file for testing
+# This contains various SSH key types for demonstration
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC4tq5j83ruonzKB7eaGPDzyVu1jX9Kp96SaSvX6CLmx4Rg3+0uxcmNHrfUl50d/Xv7khTyje2TQODoaAb7UKOH9sBqfzTPs1gnLcvein069mduw0KZ5ApAH3CvyYR6yk7ZcKkFWGZ6nTHJi2O0hDe+fE0oFmJqGGc06zNPwvGIBleubcc53j+OIe5ihGCzsJM/mUgD564vDgDKKTV6l1NJRzS/T9P2LAovaOJ7aMlv+suV87qKh8Njjti7LwxJAoz3n1bPDTbaUBqRK0fGKigbIcCRexUhLqRwgD2OT0UiFu8XA4gRyAgnQbWuct7xhEFY7q60VdKCcvg2hiy/XAGH user@example.com (2048-bit RSA)
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQC9mJWyEwJ8mktdnlwSads/8Vh9QyT5fxIfaxaTnos6ksZ+XsVoaWCv+4PyZfH9/rN+ymM05zO4ilwG4dFVykyZo8owCP7OucY3HAl2N7TXTTSw80SjIUb1G/Sr2ERGYxGDJTrn9hIUfsuao0/FkQy83+H8WhtDp7YDexlqF/iIRw== user@host (weak 1024-bit RSA - should be red)
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl user@modern.host (ED25519)
+ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg= user@ecdsa.host (ECDSA)
+# Comment line - should be ignored
