@@ -4,13 +4,13 @@ A Scala port of the Perl SSH key analyzer (whocan) that examines SSH public keys
 
 ## Features
 
-- **Analyzes SSH public keys** from authorized_keys files
-- **Supports multiple key types**: RSA, DSS, ECDSA, ED25519
-- **Calculates fingerprints**: MD5 and SHA256 (for SSHFP records)
+- **Analyzes SSH public keys** from authorized_keys and known_hosts files
+- **Supports multiple key types**: RSA, DSS, ECDSA, ED25519, and security key variants
+- **Calculates fingerprints**: SHA256 (default) and MD5 (optional)
 - **Displays key strength**: Color-coded output based on modulus bits
-- **Shows exponents**: Optional display of RSA key exponents
-- **SSHFP format**: Can output DNS SSHFP resource record format
+- **Shows exponents**: Always displays RSA key exponents when available
 - **SSH-1 detection**: Identifies legacy SSH-1 keys (not decoded)
+- **Smart format detection**: Automatically handles both authorized_keys and known_hosts formats
 
 ## Installation with mise
 
@@ -104,8 +104,7 @@ java -jar target/scala-3.3.1/ssh-key-analyzer.jar /path/to/authorized_keys
 
 ```bash
 -h, --help, -?       Show help message and version
--e, --exponent       Display RSA key exponents
--s, --sha, --sshfp   Show SHA256 fingerprint in SSHFP RR format
+--md5                Display MD5 fingerprint instead of SHA256
 -d, --debug          Enable debug output
 ```
 
@@ -116,14 +115,14 @@ java -jar target/scala-3.3.1/ssh-key-analyzer.jar /path/to/authorized_keys
 scala-cli run SSHKeyAnalyzer.scala -- ~/.ssh/authorized_keys
 ```
 
-**Show RSA exponents:**
+**Analyze your known_hosts file:**
 ```bash
-scala-cli run SSHKeyAnalyzer.scala -- -e ~/.ssh/authorized_keys
+scala-cli run SSHKeyAnalyzer.scala -- ~/.ssh/known_hosts
 ```
 
-**Generate SSHFP DNS records:**
+**Show MD5 fingerprints instead of SHA256:**
 ```bash
-scala-cli run SSHKeyAnalyzer.scala -- -s ~/.ssh/authorized_keys
+scala-cli run SSHKeyAnalyzer.scala -- --md5 ~/.ssh/authorized_keys
 ```
 
 **Debug mode:**
@@ -133,25 +132,18 @@ scala-cli run SSHKeyAnalyzer.scala -- -d ~/.ssh/authorized_keys
 
 ## Output Format
 
-### Standard Output
+### Standard Output (SHA256)
 ```
-Line  KeyType             Bits   Fingerprint (MD5)                                 Comment
----- ------------------- ------ ------------------------------------------------- -------------
-1    ssh-rsa             2048   16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48  "user@host"
+Line  KeyType             Bits   Exponent    Fingerprint (SHA256)                                 Comment
+---- ------------------- ------ ----------- ---------------------------------------------------- -------------
+1    ssh-rsa             2048   65537       SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8   "user@host"
 ```
 
-### With Exponents (-e)
+### With MD5 (--md5)
 ```
 Line  KeyType             Bits   Exponent    Fingerprint (MD5)                                 Comment
 ---- ------------------- ------ ----------- ------------------------------------------------- -------------
 1    ssh-rsa             2048   65537       16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48  "user@host"
-```
-
-### SSHFP Format (-s)
-```
-Line  KeyType             Bits   "SSHFP RR record"                                    Comment
----- ------------------- ------ ---------------------------------------------------- -------------
-1    ssh-rsa             2048   "SSHFP 1 2 ABC123...XYZ789"                          "user@host"
 ```
 
 ## Color Coding
@@ -167,9 +159,13 @@ Terminal output is color-coded based on key strength:
 | Key Type | Supported | Notes |
 |----------|-----------|-------|
 | ssh-rsa | ✅ | Shows modulus bits and exponent |
-| ssh-dss | ✅ | Shows modulus bits |
-| ecdsa-* | ✅ | Shows effective key size |
-| ssh-ed25519 | ✅ | Shows key size |
+| ssh-dss | ✅ | Shows modulus bits (typically 1024) |
+| ecdsa-sha2-nistp256 | ✅ | Shows 256 bits |
+| ecdsa-sha2-nistp384 | ✅ | Shows 384 bits |
+| ecdsa-sha2-nistp521 | ✅ | Shows 521 bits |
+| ssh-ed25519 | ✅ | Shows 256 bits |
+| sk-ecdsa-sha2-nistp256@openssh.com | ✅ | Security key ECDSA (256 bits) |
+| sk-ssh-ed25519@openssh.com | ✅ | Security key ED25519 (256 bits) |
 | ssh-1 | ⚠️ | Detected but not fully decoded |
 
 ## Security Best Practices
@@ -187,10 +183,10 @@ As a cybersecurity engineer, you can use this tool to:
 
 1. **Audit authorized_keys files** across your infrastructure
 2. **Identify weak keys** that need rotation
-3. **Generate SSHFP records** for DNS-based SSH key verification
-4. **Track key usage** by analyzing fingerprints
+3. **Track key usage** by analyzing fingerprints (SHA256 is more secure than MD5)
+4. **Verify key strength** compliance with security policies
 5. **Detect duplicate keys** across multiple servers
-6. **Verify key strength** compliance with security policies
+6. **Review key exponents** for RSA keys
 
 ## Project Structure
 
@@ -208,11 +204,11 @@ As a cybersecurity engineer, you can use this tool to:
 
 This Scala port maintains functional parity with the original Perl script:
 
-- ✅ Same command-line interface
+- ✅ Same command-line interface (updated to default SHA256)
 - ✅ Same output formats
-- ✅ Same fingerprint calculations
+- ✅ SHA256 fingerprints by default (more secure)
 - ✅ Color-coded terminal output
-- ✅ SSHFP record generation
+- ✅ Always shows exponents when available
 - ✅ All key types supported
 
 Improvements:

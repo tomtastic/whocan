@@ -12,8 +12,7 @@ object SSHKeyAnalyzer {
 
   case class Config(
     filename: String = "",
-    showSshfp: Boolean = false,
-    showExponent: Boolean = false,
+    showMd5: Boolean = false,
     debug: Boolean = false
   )
 
@@ -50,10 +49,8 @@ object SSHKeyAnalyzer {
           printInfo()
           printUsage()
           sys.exit(0)
-        case "-s" | "--sha" | "--sshfp" =>
-          config = config.copy(showSshfp = true)
-        case "-e" | "--exponent" =>
-          config = config.copy(showExponent = true)
+        case "--md5" =>
+          config = config.copy(showMd5 = true)
         case "-d" | "--debug" =>
           config = config.copy(debug = true)
         case other =>
@@ -136,28 +133,37 @@ object SSHKeyAnalyzer {
 
   def parseLine(line: String, lineNum: Int, config: Config): Option[KeyInfo] = {
     // Split line into fields
-    val fields = line.trim.split("\\s+", 3)
+    val fields = line.trim.split("\\s+")
 
     if (fields.length < 2) {
       return None
     }
 
-    // Handle options at start (like from="host" or command="...")
-    val (keyType, keyData, comment) = if (fields(0).matches("ssh-.*|ecdsa-.*")) {
-      // Standard format: keytype keydata [comment]
-      (fields(0), fields(1), if (fields.length > 2) fields(2) else "")
-    } else if (fields.length >= 3 && fields(1).matches("ssh-.*|ecdsa-.*")) {
-      // Options format: options keytype keydata [comment]
+    // Detect known_hosts format: hostname/IP keytype keydata
+    // vs authorized_keys format: keytype keydata [comment]
+    val isKnownHostsFormat = !fields(0).matches("ssh-.*|ecdsa-.*|sk-.*") && 
+                              fields.length >= 3 && 
+                              fields(1).matches("ssh-.*|ecdsa-.*|sk-.*")
+
+    val (keyType, keyData, comment) = if (isKnownHostsFormat) {
+      // known_hosts format: hostname keytype keydata
+      val hostname = fields(0)
+      (fields(1), fields(2), hostname)
+    } else if (fields(0).matches("ssh-.*|ecdsa-.*|sk-.*")) {
+      // authorized_keys format: keytype keydata [comment]
+      (fields(0), fields(1), if (fields.length > 2) fields.drop(2).mkString(" ") else "")
+    } else if (fields.length >= 3 && fields(1).matches("ssh-.*|ecdsa-.*|sk-.*")) {
+      // authorized_keys with options: options keytype keydata [comment]
       (fields(1), fields(2), if (fields.length > 3) fields.drop(3).mkString(" ") else "")
     } else {
       // Try to find ssh key type in the line
-      val sshTypeIdx = fields.indexWhere(_.matches("ssh-.*|ecdsa-.*"))
+      val sshTypeIdx = fields.indexWhere(_.matches("ssh-.*|ecdsa-.*|sk-.*"))
       if (sshTypeIdx >= 0 && sshTypeIdx + 1 < fields.length) {
         (fields(sshTypeIdx), fields(sshTypeIdx + 1), 
           if (fields.length > sshTypeIdx + 2) fields.drop(sshTypeIdx + 2).mkString(" ") else "")
-          } else {
-            return None
-          }
+      } else {
+        return None
+      }
     }
 
     // Check if it looks like SSH-1 key (old format with numbers)
@@ -184,7 +190,7 @@ object SSHKeyAnalyzer {
 
       // Compute fingerprints
       val fpMd5 = computeMd5Fingerprint(bytes)
-      val fpSha256 = if (config.showSshfp) computeSha256Fingerprint(bytes) else ""
+      val fpSha256 = computeSha256Fingerprint(bytes)
 
       // Read type length
       val typeLen = buffer.getInt()
@@ -212,6 +218,15 @@ object SSHKeyAnalyzer {
           parseEcdsaKey(buffer, keyType, lineNum, comment, fpMd5, fpSha256, config)
         case t if t.contains("ed25519") =>
           parseEd25519Key(buffer, keyType, lineNum, comment, fpMd5, fpSha256, config)
+        case t if t.contains("sk-") =>
+          // Security key variants (sk-ecdsa-sha2-nistp256@openssh.com, sk-ssh-ed25519@openssh.com)
+          if (t.contains("ecdsa")) {
+            parseEcdsaSkKey(buffer, keyType, lineNum, comment, fpMd5, fpSha256, config)
+          } else if (t.contains("ed25519")) {
+            parseEd25519SkKey(buffer, keyType, lineNum, comment, fpMd5, fpSha256, config)
+          } else {
+            throw new Exception(s"Unknown SK key type: $keyType")
+          }
         case _ =>
           throw new Exception(s"Unknown key type: $keyType")
       }
@@ -301,30 +316,79 @@ object SSHKeyAnalyzer {
 
   def parseDssKey(buffer: ByteBuffer, keyType: String, lineNum: Int, comment: String,
     fpMd5: String, fpSha256: String, config: Config): Option[KeyInfo] = {
-      // DSS: modulus then exponent
-      val modLen = buffer.getInt()
-      val modBits = (modLen - 1) * 8
+      try {
+        // DSA/DSS: p, q, g, y (public key components)
+        // Read p (prime modulus)
+        val pLen = buffer.getInt()
+        val pBytes = new Array[Byte](pLen)
+        buffer.get(pBytes)
+        val p = BigInt(1, pBytes)
+        val modBits = p.bitLength
 
-      Some(KeyInfo(
-        line = lineNum,
-        keyType = keyType,
-        modBits = modBits,
-        exponent = "n/a",
-        fpMd5 = fpMd5,
-        fpSha256 = fpSha256,
-        comment = comment,
-        typeVer = "2"
-      ))
+        Some(KeyInfo(
+          line = lineNum,
+          keyType = keyType,
+          modBits = modBits,
+          exponent = "n/a",
+          fpMd5 = fpMd5,
+          fpSha256 = fpSha256,
+          comment = comment,
+          typeVer = "2"
+        ))
+      } catch {
+        case e: Exception =>
+          if (config.debug) {
+            println(s"DEBUG: DSS parse failed - ${e.getClass.getSimpleName}: ${e.getMessage}")
+          }
+          None
+      }
   }
 
   def parseEcdsaKey(buffer: ByteBuffer, keyType: String, lineNum: Int, comment: String,
     fpMd5: String, fpSha256: String, config: Config): Option[KeyInfo] = {
-      // ECDSA: domain parameters, then public key
-      val paramLen = buffer.getInt()
-      buffer.position(buffer.position() + paramLen)
+      try {
+        // ECDSA: curve name, then public key point
+        val curveLen = buffer.getInt()
+        val curveBytes = new Array[Byte](curveLen)
+        buffer.get(curveBytes)
+        val curveName = new String(curveBytes, "UTF-8")
 
-      val modLen = buffer.getInt()
-      val modBits = (modLen - 1) * 8 / 2
+        // Determine bit size from curve name
+        val modBits = curveName match {
+          case "nistp256" => 256
+          case "nistp384" => 384
+          case "nistp521" => 521
+          case _ => 
+            // Fallback: try to extract from key type (e.g., "ecdsa-sha2-nistp256")
+            if (keyType.contains("256")) 256
+            else if (keyType.contains("384")) 384
+            else if (keyType.contains("521")) 521
+            else 256 // default
+        }
+
+        Some(KeyInfo(
+          line = lineNum,
+          keyType = keyType,
+          modBits = modBits,
+          exponent = "n/a",
+          fpMd5 = fpMd5,
+          fpSha256 = fpSha256,
+          comment = comment,
+          typeVer = "3"
+        ))
+      } catch {
+        case e: Exception =>
+          if (config.debug) {
+            println(s"DEBUG: ECDSA parse failed - ${e.getClass.getSimpleName}: ${e.getMessage}")
+          }
+          None
+      }
+  }
+
+  def parseEd25519Key(buffer: ByteBuffer, keyType: String, lineNum: Int, comment: String,
+    fpMd5: String, fpSha256: String, config: Config): Option[KeyInfo] = {
+      // ED25519 keys are always 256 bits (32 bytes)
+      val modBits = 256
 
       Some(KeyInfo(
         line = lineNum,
@@ -334,14 +398,54 @@ object SSHKeyAnalyzer {
         fpMd5 = fpMd5,
         fpSha256 = fpSha256,
         comment = comment,
-        typeVer = "3"
+        typeVer = "4"
       ))
   }
 
-  def parseEd25519Key(buffer: ByteBuffer, keyType: String, lineNum: Int, comment: String,
+  def parseEcdsaSkKey(buffer: ByteBuffer, keyType: String, lineNum: Int, comment: String,
     fpMd5: String, fpSha256: String, config: Config): Option[KeyInfo] = {
-      val modLen = buffer.getInt()
-      val modBits = (modLen - 1) * 8
+      try {
+        // SK-ECDSA: curve name, public key point, application string
+        val curveLen = buffer.getInt()
+        val curveBytes = new Array[Byte](curveLen)
+        buffer.get(curveBytes)
+        val curveName = new String(curveBytes, "UTF-8")
+
+        // Determine bit size from curve name
+        val modBits = curveName match {
+          case "nistp256" => 256
+          case "nistp384" => 384
+          case "nistp521" => 521
+          case _ => 
+            if (keyType.contains("256")) 256
+            else if (keyType.contains("384")) 384
+            else if (keyType.contains("521")) 521
+            else 256
+        }
+
+        Some(KeyInfo(
+          line = lineNum,
+          keyType = keyType,
+          modBits = modBits,
+          exponent = "n/a",
+          fpMd5 = fpMd5,
+          fpSha256 = fpSha256,
+          comment = comment,
+          typeVer = "3"
+        ))
+      } catch {
+        case e: Exception =>
+          if (config.debug) {
+            println(s"DEBUG: SK-ECDSA parse failed - ${e.getClass.getSimpleName}: ${e.getMessage}")
+          }
+          None
+      }
+  }
+
+  def parseEd25519SkKey(buffer: ByteBuffer, keyType: String, lineNum: Int, comment: String,
+    fpMd5: String, fpSha256: String, config: Config): Option[KeyInfo] = {
+      // SK-ED25519 keys are always 256 bits (32 bytes), same as regular ED25519
+      val modBits = 256
 
       Some(KeyInfo(
         line = lineNum,
@@ -364,19 +468,16 @@ object SSHKeyAnalyzer {
   def computeSha256Fingerprint(bytes: Array[Byte]): String = {
     val sha256 = MessageDigest.getInstance("SHA-256")
     val digest = sha256.digest(bytes)
-    Base64.getEncoder.withoutPadding().encodeToString(digest)
+    "SHA256:" + Base64.getEncoder.withoutPadding().encodeToString(digest)
   }
 
   def printHeader(config: Config): Unit = {
-    if (config.showSshfp) {
-      println("Line  KeyType             Bits   \"SSHFP RR record\"                                    Comment")
-      println("---- ------------------- ------ ---------------------------------------------------- -------------")
-    } else if (config.showExponent) {
+    if (config.showMd5) {
       println("Line  KeyType             Bits   Exponent    Fingerprint (MD5)                                 Comment")
       println("---- ------------------- ------ ----------- ------------------------------------------------- -------------")
     } else {
-      println("Line  KeyType             Bits   Fingerprint (MD5)                                 Comment")
-      println("---- ------------------- ------ ------------------------------------------------- -------------")
+      println("Line  KeyType             Bits   Exponent    Fingerprint (SHA256)                                 Comment")
+      println("---- ------------------- ------ ----------- ---------------------------------------------------- -------------")
     }
   }
 
@@ -396,39 +497,32 @@ object SSHKeyAnalyzer {
 
     val reset = if (color.nonEmpty) "\u001b[0m" else ""
 
-    if (config.showSshfp && !info.failed) {
-      printf("%-4d %-20s %s%-6d%s \"SSHFP %s 2 %s\"  \"%s\"\n",
-        info.line, info.keyType, color, info.modBits, reset, 
-        info.typeVer, info.fpSha256, info.comment)
-    } else if (config.showSshfp && info.failed) {
-      printf("%-4d %-20s %-6s %-52s  \"%s\"\n",
-        info.line, info.keyType, 
-        if (info.modBits == 0) "n/a" else info.modBits.toString,
-        info.fpSha256, info.comment)
-    } else if (config.showExponent && !info.failed) {
-      val expDisplay = if (info.exponent.length > 10) info.exponent.take(10) else info.exponent
+    // Always show exponent
+    val expDisplay = if (info.exponent.length > 10) info.exponent.take(10) else info.exponent
+
+    if (config.showMd5 && !info.failed) {
       printf("%-4d %-20s %s%-6d%s %-11s %-49s \"%s\"\n",
         info.line, info.keyType, color, info.modBits, reset,
         expDisplay, info.fpMd5, info.comment)
-    } else if (config.showExponent && info.failed) {
+    } else if (config.showMd5 && info.failed) {
       printf("%-4d %-20s %-6s %-11s %-49s \"%s\"\n",
         info.line, info.keyType,
         if (info.modBits == 0) "n/a" else info.modBits.toString,
         info.exponent, info.fpMd5, info.comment)
     } else if (!info.failed) {
-      printf("%-4d %-20s %s%-6d%s %-49s \"%s\"\n",
+      printf("%-4d %-20s %s%-6d%s %-11s %-52s \"%s\"\n",
         info.line, info.keyType, color, info.modBits, reset,
-        info.fpMd5, info.comment)
+        expDisplay, info.fpSha256, info.comment)
     } else {
-      printf("%-4d %-20s %-6s %-49s \"%s\"\n",
+      printf("%-4d %-20s %-6s %-11s %-52s \"%s\"\n",
         info.line, info.keyType,
         if (info.modBits == 0) "n/a" else info.modBits.toString,
-        info.fpMd5, info.comment)
+        info.exponent, info.fpSha256, info.comment)
     }
   }
 
   def printUsage(): Unit = {
-    println(s"Usage: SSHKeyAnalyzer [-h|--help] [-e|--exponent] [-s|--sha|--sshfp] [-d|--debug] public_key_file")
+    println(s"Usage: SSHKeyAnalyzer [-h|--help] [--md5] [-d|--debug] public_key_file")
   }
 
   def printInfo(): Unit = {

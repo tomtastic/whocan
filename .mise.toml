@@ -1,6 +1,7 @@
 [tools]
 java = "temurin-21"
 scala = "3.8.1"
+scala-cli = "1.12.2"
 sbt = "1.12.2"
 
 [env]
