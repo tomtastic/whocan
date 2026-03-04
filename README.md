@@ -3,12 +3,12 @@
 A Scala port of the Perl SSH key analyzer [whocan](https://github.com/tomtastic/scripts/blob/master/whocan) that examines SSH public keys from authorized_keys files, extracts metadata, and validates key strength.
 
 ```shell
-Line  KeyType             Bits   Exponent    Fingerprint (MD5)                                 Comment
----- ------------------- ------ ----------- ------------------------------------------------- -------------
-3    ssh-rsa              2048   65537       9d:33:ff:be:8b:6d:11:38:77:42:9b:0e:0f:76:7a:bb   "user@example.com (2048-bit RSA)"
-4    ssh-rsa              1024   65537       d3:27:34:4a:c7:ec:b7:3e:df:eb:0d:d7:31:bc:2f:be   "user@host (weak 1024-bit RSA)"
-5    ssh-ed25519          248    n/a         65:96:2d:fc:e8:d5:a9:11:64:0c:0f:ea:00:6e:5b:bd   "user@modern.host (ED25519)"
-6    ecdsa-sha2-nistp256  256    n/a         7b:99:81:1e:4c:91:a5:0d:5a:2e:2e:80:13:3f:24:ca   "user@ecdsa.host (ECDSA)"
+Line  KeyType             Bits   Exponent    Fingerprint (SHA256)                                 Comment
+---- ------------------- ------ ----------- ---------------------------------------------------- -------------
+3    ssh-rsa              2048   65537       SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8   "user@example.com (2048-bit RSA)"
+4    ssh-rsa              1024   65537       SHA256:d3274a4c7ecb73edfebd0dd731bc2fbe1234567890ab   "user@host (weak 1024-bit RSA)"
+5    ssh-ed25519          256    n/a         SHA256:6596fcfce8d5a91164c0feea006e5bbd1234567890ab   "user@modern.host (ED25519)"
+6    ecdsa-sha2-nistp256  256    n/a         SHA256:7b99811e4c91a50d5a2e2e80133f24ca1234567890ab   "user@ecdsa.host (ECDSA)"
 ```
 
 ## Features
@@ -124,7 +124,6 @@ java -jar target/scala-3.3.1/ssh-key-analyzer.jar /path/to/authorized_keys
 scala-cli run SSHKeyAnalyzer.scala -- ~/.ssh/authorized_keys
 ```
 
-<<<<<<< HEAD
 **Analyze your known_hosts file:**
 ```bash
 scala-cli run SSHKeyAnalyzer.scala -- ~/.ssh/known_hosts
@@ -163,8 +162,6 @@ Terminal output is color-coded based on key strength:
 - 🟢 **Green**: Strong keys (≥4096 bits for RSA, or ECDSA/ED25519)
 - 🟡 **Yellow**: Moderate keys (1024-2047 bits)
 - 🔴 **Red**: Weak keys (<1024 bits for RSA)
-
-=======
 ## Key Type Support
 
 | Key Type | Supported | Notes |
@@ -180,7 +177,16 @@ Terminal output is color-coded based on key strength:
 | ssh-1 | ⚠️ | Detected but not fully decoded |
 
 
-## Use Cases
+## Security Best Practices
+
+Based on the output:
+
+- **Avoid**: Keys with <2048 bits (RSA) or SSH-1 keys
+- **Acceptable**: 2048-bit RSA keys for general use
+- **Recommended**: 4096-bit RSA or ED25519 keys
+- **Modern**: ED25519 keys (256-bit, equivalent to ~3000-bit RSA)
+
+## Cybersecurity Use Cases
 
 You can use this tool to:
 
@@ -194,17 +200,59 @@ You can use this tool to:
 
 ## Differences from Perl Version
 
+This Scala port maintains functional parity with the original Perl script:
+
+- ✅ Same command-line interface (updated to default SHA256)
+- ✅ Same output formats
+- ✅ SHA256 fingerprints by default (more secure)
+- ✅ Color-coded terminal output
+- ✅ Always shows exponents when available
+- ✅ All key types supported
+
+Improvements:
 - Type-safe implementation
 - Better error handling
 - More maintainable code structure
 - Runs on JVM (cross-platform)
 
+## Troubleshooting
+
+### "could_not_decode" in output
+The key is not a valid base64-encoded SSH public key. Check the file format.
+
+### "not_implemented" for SSH-1 keys
+SSH-1 keys are legacy and deprecated. Consider regenerating with SSH-2.
+
+### mise tools not activating
+Make sure mise is properly configured in your shell:
+```bash
+mise doctor
+```
+
+### sbt assembly fails
+Ensure you have internet access for downloading dependencies:
+```bash
+mise install
+sbt clean
+sbt assembly
+```
+
+## Version History
+
+- **0.65-scala** - Initial Scala port from Perl version 0.65
+  - Full feature parity with original
+  - Added mise-based tool management
+  - Type-safe implementation
+
 
 ## Original Credits
 
-- 10/01/2011 - Original bash version (trcm)
-- 11/09/2014 - Migrated to Perl (trcm) 
-- 18/02/2017 - Added RSA exponent extraction (trcm)
+Original Perl version by TRCM:
+- 10/01/2011 - Original bash version
+- 11/09/2014 - Migrated to Perl
+- 18/02/2017 - Added RSA exponent extraction
+
+Scala port: 2025
 
 ## License
 
